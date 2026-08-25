@@ -3,9 +3,10 @@ from pathlib import Path
 
 import torch
 
-from flash_attention_prototype.benchmarking import BASELINES, BenchmarkConfig
-from flash_attention_prototype.environment import environment_dict
-from flash_attention_prototype.training import (
+from flash_attention_amd_prototype.backend import accelerator_device, probe_rocm
+from flash_attention_amd_prototype.benchmarking import BASELINES, BenchmarkConfig
+from flash_attention_amd_prototype.environment import environment_dict
+from flash_attention_amd_prototype.training import (
     TrainingConfig,
     run_training_comparison,
     training_loss_decreased,
@@ -15,22 +16,18 @@ from flash_attention_prototype.training import (
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate GPT-style training with custom FlashAttention"
+        description="Validate GPT-style training with AMD Triton attention"
     )
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--sequence", type=int, default=128)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--dtype", choices=["float16", "bfloat16"], default="bfloat16")
     parser.add_argument("--output", type=Path, default=Path("results/training"))
-    parser.add_argument(
-        "--plot",
-        action="store_true",
-        help="generate training plots after validation",
-    )
     parser.add_argument("--quick", action="store_true")
     args = parser.parse_args()
-    if not torch.cuda.is_available():
-        raise SystemExit("CUDA is required for custom Triton training validation.")
+    capability = probe_rocm()
+    if not capability.available:
+        raise SystemExit(f"custom ROCm/Triton is unavailable: {capability.reason}")
     if args.quick:
         args.steps = 2
         args.sequence = 32
@@ -50,15 +47,16 @@ def main() -> None:
         dtype=dtype,
         causal=True,
     )
-    custom_status = BASELINES["custom_triton"].status(benchmark_config)
-    if not custom_status.available:
-        raise SystemExit(custom_status.reason or "custom Triton is unavailable")
+    for baseline_name in ("custom_triton_amd", "pytorch_math"):
+        status = BASELINES[baseline_name].status(benchmark_config)
+        if not status.available:
+            raise SystemExit(status.reason or f"{baseline_name} is unavailable")
 
     history = run_training_comparison(
         config,
-        BASELINES["custom_triton"],
+        BASELINES["custom_triton_amd"],
         BASELINES["pytorch_math"],
-        device=torch.device("cuda"),
+        device=accelerator_device(),
         dtype=dtype,
     )
     csv_path, manifest_path = write_training_results(
@@ -66,7 +64,7 @@ def main() -> None:
         config,
         args.output,
         {
-            "custom_backend": "custom_triton",
+            "custom_backend": "custom_triton_amd",
             "reference_backend": "pytorch_math",
             "dtype": args.dtype,
             "environment": environment_dict(),
@@ -80,19 +78,6 @@ def main() -> None:
         f"{final.reference_loss:.4f}"
     )
     print(f"Wrote {csv_path} and {manifest_path}")
-    if args.plot:
-        from flash_attention_prototype.evaluation import (
-            load_training_results,
-            plot_training,
-            write_evaluation_summary,
-        )
-
-        training_rows = load_training_results(csv_path)
-        plot_training(training_rows, args.output)
-        write_evaluation_summary(
-            args.output / "summary.md", training_rows=training_rows
-        )
-        print(f"Wrote training plot and {args.output / 'summary.md'}")
     if not training_loss_decreased(history):
         raise SystemExit("training validation failed: loss did not decrease")
 

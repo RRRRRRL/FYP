@@ -4,13 +4,14 @@ from pathlib import Path
 
 import torch
 
-from flash_attention_prototype.benchmarking import (
+from flash_attention_amd_prototype.backend import probe_rocm
+from flash_attention_amd_prototype.benchmarking import (
     BASELINES,
     BenchmarkConfig,
     benchmark_baseline,
     write_results,
 )
-from flash_attention_prototype.environment import environment_dict
+from flash_attention_amd_prototype.environment import environment_dict
 
 
 DTYPES = {
@@ -21,7 +22,7 @@ DTYPES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Benchmark FlashAttention forward/backward implementations"
+        description="Benchmark AMD ROCm attention implementations"
     )
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--heads", type=int, default=8)
@@ -61,9 +62,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if not torch.cuda.is_available():
+    capability = probe_rocm(require_triton=False)
+    if not capability.available:
         raise SystemExit(
-            "CUDA is unavailable. Run flash-attention-env to inspect the setup."
+            f"ROCm is unavailable: {capability.reason}. "
+            "Run flash-attention-amd-env for details."
         )
     if args.quick:
         args.batch = 1
@@ -102,14 +105,16 @@ def main() -> None:
                     f"{result.tflops:.2f} TFLOP/s" if result.tflops else "-"
                 )
                 print(
-                    f"N={sequence_length:<5} {baseline_name:<18} "
+                    f"N={sequence_length:<5} {baseline_name:<24} "
                     f"{pass_name:<8} {result.status:<11} {latency:<12} "
                     f"{throughput}"
                 )
 
+    arguments = vars(args).copy()
+    arguments["output"] = str(output_directory)
     metadata = {
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "arguments": vars(args) | {"output": str(output_directory)},
+        "arguments": arguments,
         "environment": environment_dict(),
         "flop_convention": (
             "forward=4*B*H*score_pairs*D; backward=2.5*forward; "
@@ -121,15 +126,15 @@ def main() -> None:
     )
     print(f"Wrote {csv_path} and {manifest_path}")
     if args.plot:
-        from flash_attention_prototype.evaluation import (
+        from flash_attention_amd_prototype.evaluation import (
             plot_performance,
             write_evaluation_summary,
         )
 
-        plot_performance([result.to_dict() for result in results], output_directory)
+        rows = [result.to_dict() for result in results]
+        plot_performance(rows, output_directory)
         write_evaluation_summary(
-            output_directory / "summary.md",
-            benchmark_rows=[result.to_dict() for result in results],
+            output_directory / "summary.md", benchmark_rows=rows
         )
         print(f"Wrote evaluation plots and {output_directory / 'summary.md'}")
 

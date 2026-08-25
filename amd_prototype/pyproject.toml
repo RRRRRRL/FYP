@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flash-attention-prototype"
+name = "flash-attention-amd-prototype"
 version = "0.1.0"
-description = "FlashAttention forward and backward prototype implemented with Triton"
+description = "FA3-inspired FlashAttention prototype for AMD ROCm and Triton"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,8 +18,10 @@ test = ["pytest>=8.0"]
 evaluation = ["matplotlib>=3.8"]
 
 [project.scripts]
-flash-attention-env = "flash_attention_prototype.environment:main"
-flash-attention-evaluate = "flash_attention_prototype.evaluation:main"
+flash-attention-amd-env = "flash_attention_amd_prototype.environment:main"
+flash-attention-amd-probe = "flash_attention_amd_prototype.triton_probe:main"
+flash-attention-amd-evaluate = "flash_attention_amd_prototype.evaluation:main"
+flash-attention-amd-tune = "flash_attention_amd_prototype.tuning:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -27,7 +29,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "cuda: requires a CUDA-capable NVIDIA GPU",
+    "rocm: requires an AMD GPU with a PyTorch ROCm build",
+    "hardware: executes kernels on an accelerator",
     "slow: long-running validation excluded from routine tests",
     "benchmark: performance or memory measurement",
 ]

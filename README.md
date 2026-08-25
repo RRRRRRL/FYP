@@ -107,6 +107,55 @@ The custom and forced-math reference models begin with identical parameters and
 train on the same fixed next-token batch. Dropout is intentionally disabled;
 deterministic Philox mask replay is outside the current project scope.
 
+## Evaluation Plots
+
+Install the optional plotting dependency:
+
+```bash
+python -m pip install -e ".[evaluation]"
+```
+
+Generate plots automatically while running an experiment:
+
+```bash
+python benchmark.py --quick --dtype float16 --causal --plot \
+  --output results/benchmark-smoke
+python training_validation.py --quick --dtype float16 --plot \
+  --output results/training-smoke
+```
+
+Generate a combined report later from existing artifacts:
+
+```bash
+flash-attention-evaluate \
+  --benchmark results/memory-scaling/results.csv \
+  --training results/training-100/training.csv \
+  --output results/evaluation
+```
+
+The report contains:
+
+- forward and backward latency versus sequence length
+- forward and backward effective TFLOP/s
+- log-log peak VRAM scaling curves
+- custom Triton speedup over forced PyTorch math SDPA
+- training loss and gradient norm trajectories
+- custom/reference parameter divergence
+- a Markdown summary with fitted memory exponents and speedup tables
+
+Every chart is written as a high-resolution PNG for presentations and a vector
+PDF for the thesis. Generate only the Markdown analysis without Matplotlib using:
+
+```bash
+python evaluate_results.py --benchmark results/memory-scaling/results.csv \
+  --output results/evaluation --summary-only
+```
+
+The fitted memory exponent uses $\mathrm{VRAM} \approx cN^p$. Values near
+$p=1$ support linear scaling, while values near $p=2$ indicate quadratic
+scaling. Treat the fit as evidence only when it includes multiple successful
+sequence lengths with identical batch, head, dtype, and causal settings.
+
 ## Algorithm
 
 For every query tile, the kernel streams over key/value tiles. It updates the
